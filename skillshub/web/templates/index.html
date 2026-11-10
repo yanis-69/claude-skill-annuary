@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block content %}
+<form id="filters" class="layout" action="/" method="get"
+      hx-get="/" hx-target="#results" hx-push-url="true"
+      hx-trigger="change, submit, input changed delay:350ms from:#q">
+  <aside class="filters">
+    <label class="field">
+      <span>Catégorie</span>
+      <select name="category">
+        <option value="">Toutes</option>
+        {% for name, n in facets.categories %}
+        <option value="{{ name }}" {{ "selected" if filters.category == name }}>{{ category_labels.get(name, name) }} ({{ n }})</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <fieldset>
+      <legend>Avantages (tags)</legend>
+      <div class="checks tags-list">
+        {% for name, n in facets.tags %}
+        <label><input type="checkbox" name="tags" value="{{ name }}" {{ "checked" if name in filters.tags }}> {{ name }} <small>{{ n }}</small></label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <label class="field">
+      <span>Étoiles minimum</span>
+      <input type="number" name="min_stars" min="0" step="10" value="{{ filters.min_stars or "" }}" placeholder="0">
+    </label>
+
+    <label class="field">
+      <span>Mis à jour depuis</span>
+      <select name="since">
+        <option value="">Peu importe</option>
+        {% for days, label in since_choices.items() %}
+        <option value="{{ days }}" {{ "selected" if filters.since == days }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <fieldset>
+      <legend>Compatibilité</legend>
+      <div class="checks">
+        {% for name, n in facets.compat %}
+        <label><input type="checkbox" name="compat" value="{{ name }}" {{ "checked" if name in filters.compat }}> {{ compat_labels.get(name, name) }} <small>{{ n }}</small></label>
+        {% endfor %}
+      </div>
+    </fieldset>
+
+    <label class="field">
+      <span>Type d'installation</span>
+      <select name="install_type">
+        <option value="">Tous</option>
+        {% for name, n in facets.install_types %}
+        <option value="{{ name }}" {{ "selected" if filters.install_type == name }}>{{ install_labels.get(name, name) }} ({{ n }})</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Licence</span>
+      <select name="license">
+        <option value="">Toutes</option>
+        {% for name, n in facets.licenses %}
+        <option value="{{ name }}" {{ "selected" if filters.license == name }}>{{ name }} ({{ n }})</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Langue du skill</span>
+      <select name="language">
+        <option value="">Toutes</option>
+        {% for name, n in facets.languages %}
+        <option value="{{ name }}" {{ "selected" if filters.language == name }}>{{ lang_labels.get(name, name) }} ({{ n }})</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label class="field">
+      <span>Auteur</span>
+      <input type="text" name="author" value="{{ filters.author }}" placeholder="ex. anthropics" autocomplete="off">
+    </label>
+
+    <fieldset>
+      <legend>Options</legend>
+      <div class="checks">
+        <label><input type="checkbox" name="official" value="1" {{ "checked" if filters.official }}> Officiel Anthropic</label>
+        <label><input type="checkbox" name="scripts" value="1" {{ "checked" if filters.scripts }}> Avec scripts</label>
+        <label><input type="checkbox" name="light" value="1" {{ "checked" if filters.light }}> Léger (&lt; 2k tokens)</label>
+        <label><input type="checkbox" name="hide_archived" value="1" {{ "checked" if filters.hide_archived }}> Exclure les dépôts archivés</label>
+      </div>
+    </fieldset>
+
+    <a class="reset" href="/">Réinitialiser les filtres</a>
+  </aside>
+
+  <section class="content">
+    <div class="searchbar">
+      <input type="search" id="q" name="q" value="{{ filters.q }}" placeholder="Rechercher un skill (nom, description, avantages, tags)…" autocomplete="off" autofocus>
+      <label class="sort">
+        <span>Tri</span>
+        <select name="sort">
+          <option value="">Automatique (pertinence si recherche, sinon étoiles)</option>
+          {% for key, (label, _) in sorts.items() %}
+          <option value="{{ key }}" {{ "selected" if sort_param == key }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <noscript><button type="submit">Rechercher</button></noscript>
+    </div>
+    <div id="results">
+      {% include "_results.html" %}
+    </div>
+  </section>
+</form>
+{% endblock %}

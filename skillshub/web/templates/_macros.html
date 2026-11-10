@@ -1,0 +1,29 @@
+{% macro card(s, show_repo=true) %}
+<article class="card">
+  <header>
+    <h3><a href="/skill/{{ s.id }}">{{ s.name }}</a></h3>
+    <span class="stars" title="Étoiles du dépôt">★ {{ s.stars|num }}</span>
+  </header>
+  {% if show_repo %}
+  <p class="origin">
+    <a href="/repo/{{ s.full_name }}">{{ s.full_name }}</a>{% if s.path %}<span class="path"> / {{ s.path }}</span>{% endif %}
+    {% if s.is_official %}<span class="badge official">Officiel Anthropic</span>{% endif %}
+    {% if s.archived %}<span class="badge muted">Archivé</span>{% endif %}
+  </p>
+  {% elif s.path %}
+  <p class="origin"><span class="path">{{ s.path }}</span></p>
+  {% endif %}
+  <p class="summary">{{ (s.summary or s.frontmatter_description or "")|truncate(260) }}</p>
+  <p class="badges">
+    {% if s.category %}<a class="badge cat" href="/?category={{ s.category }}">{{ category_labels.get(s.category, s.category) }}</a>{% endif %}
+    {% for t in s.tags %}<a class="badge tag" href="/?tags={{ t }}">{{ t }}</a>{% endfor %}
+  </p>
+  <footer>
+    <span title="Taille du SKILL.md">≈ {{ s.tokens|num }} tokens</span>
+    {% if s.has_scripts %}<span>scripts</span>{% endif %}
+    {% if s.install_type %}<span>{{ install_labels.get(s.install_type, s.install_type) }}</span>{% endif %}
+    {% if s.trend and s.trend > 0 %}<span class="trend" title="Étoiles gagnées sur 30 jours">+{{ s.trend|num }} ★</span>{% endif %}
+    <span title="Dernier push du dépôt">maj {{ s.pushed_at|day }}</span>
+  </footer>
+</article>
+{% endmacro %}

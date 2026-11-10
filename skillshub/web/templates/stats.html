@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Statistiques · Skills Hub{% endblock %}
+{% macro bars(rows, param, labels={}) %}
+{% set top = rows[0][1] if rows else 1 %}
+<ul class="bars">
+  {% for name, n in rows %}
+  <li>
+    <a href="/?{{ param }}={{ name|urlencode }}">{{ labels.get(name, name) }}</a>
+    <span class="bar"><span style="width: {{ (100 * n / top)|round(1) }}%"></span></span>
+    <span class="n">{{ n|num }}</span>
+  </li>
+  {% else %}
+  <li class="muted-text">Aucune donnée</li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+{% block content %}
+<article class="detail">
+  <h1>Statistiques</h1>
+
+  <div class="tiles">
+    <div class="tile"><strong>{{ stats.skills|num }}</strong><span>skills</span></div>
+    <div class="tile"><strong>{{ stats.repos_with_skills|num }}</strong><span>dépôts avec skills</span></div>
+    <div class="tile"><strong>{{ stats.repos|num }}</strong><span>dépôts suivis</span></div>
+    <div class="tile"><strong>{{ stats.official|num }}</strong><span>skills officiels</span></div>
+    <div class="tile"><strong>{{ stats.candidates|num }}</strong><span>dépôts en attente</span></div>
+  </div>
+
+  <section>
+    <h2>Dernier crawl</h2>
+    {% set run = stats.last_run %}
+    {% if run %}
+    <dl class="facts inline">
+      <dt>Début</dt><dd>{{ run.started_at|replace("T", " ")|replace("Z", " UTC") }}</dd>
+      <dt>Fin</dt><dd>{{ (run.finished_at or "en cours")|replace("T", " ")|replace("Z", " UTC") }}</dd>
+      <dt>Mode</dt><dd>{{ run.mode }} · {{ run.backend }}</dd>
+      <dt>Dépôts</dt><dd>{{ run.repos_seen }} vus, {{ run.repos_added }} ajoutés, {{ run.repos_changed }} modifiés, {{ run.repos_unchanged }} inchangés</dd>
+      <dt>Skills</dt><dd>{{ run.skills_added }} ajoutés, {{ run.skills_updated }} mis à jour, {{ run.skills_removed }} retirés</dd>
+      <dt>Erreurs</dt><dd>{{ run.errors|length }}</dd>
+      <dt>Quota GitHub restant</dt><dd>{{ run.rate_remaining if run.rate_remaining is not none else "inconnu" }}</dd>
+    </dl>
+    {% else %}
+    <p class="empty">Aucun crawl enregistré. Lancer <code>python scripts/crawl.py</code>.</p>
+    {% endif %}
+  </section>
+
+  <div class="stats-grid">
+    <section>
+      <h2>Skills par catégorie</h2>
+      {{ bars(stats.by_category, "category", category_labels) }}
+    </section>
+    <section>
+      <h2>Skills par tag</h2>
+      {{ bars(stats.by_tag, "tags") }}
+    </section>
+    <section>
+      <h2>Top auteurs</h2>
+      <table>
+        <thead><tr><th>Auteur</th><th>Skills</th><th>Dépôts</th><th>Étoiles max</th></tr></thead>
+        <tbody>
+          {% for a in stats.top_authors %}
+          <tr><td><a href="/?author={{ a.owner|urlencode }}">{{ a.owner }}</a></td><td>{{ a.skills|num }}</td><td>{{ a.repos|num }}</td><td>★ {{ a.best_stars|num }}</td></tr>
+          {% else %}
+          <tr><td colspan="4" class="muted-text">Aucune donnée</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Langue et type</h2>
+      {{ bars(stats.by_language, "language", lang_labels) }}
+      {{ bars(stats.by_install_type, "install_type", install_labels) }}
+      <h2>Enrichissement</h2>
+      <ul class="plain">
+        {% for name, n in stats.by_enricher %}<li>{{ name }} : {{ n|num }}</li>{% endfor %}
+      </ul>
+    </section>
+  </div>
+</article>
+{% endblock %}

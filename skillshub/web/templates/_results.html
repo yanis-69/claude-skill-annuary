@@ -1,0 +1,32 @@
+{% from "_macros.html" import card %}
+<p class="count" aria-live="polite">
+  <strong>{{ total|num }}</strong> skill{{ "s" if total != 1 }}
+  {% if filters.q %}pour « {{ filters.q }} »{% endif %}
+  {% if active_filters %}· {{ active_filters }} filtre{{ "s" if active_filters > 1 }} actif{{ "s" if active_filters > 1 }}
+    · <a href="/{% if filters.q %}?q={{ filters.q|urlencode }}{% endif %}">réinitialiser</a>{% endif %}
+</p>
+
+{% if skills %}
+<div class="cards">
+  {% for s in skills %}{{ card(s) }}{% endfor %}
+</div>
+{% else %}
+<div class="empty">
+  <p>Aucun skill ne correspond à ces critères.</p>
+  {% if not total and not filters.q and not active_filters %}
+  <p>La base est vide. Lancer un crawl : <code>python scripts/crawl.py --limit 20 --backend heuristic</code></p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if pages > 1 %}
+<nav class="pager" aria-label="Pagination">
+  {% if page > 1 %}
+  <a href="{{ page_url(page - 1) }}" hx-get="{{ page_url(page - 1) }}" hx-target="#results" hx-push-url="true" hx-swap="innerHTML show:top">← Précédent</a>
+  {% endif %}
+  <span>Page {{ page }} / {{ pages|num }}</span>
+  {% if page < pages %}
+  <a href="{{ page_url(page + 1) }}" hx-get="{{ page_url(page + 1) }}" hx-target="#results" hx-push-url="true" hx-swap="innerHTML show:top">Suivant →</a>
+  {% endif %}
+</nav>
+{% endif %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card %}
+{% block title %}{{ repo.full_name }} · Skills Hub{% endblock %}
+{% block content %}
+<article class="detail">
+  <p class="crumbs"><a href="/">Recherche</a> › {{ repo.full_name }}</p>
+  <header class="detail-head">
+    <h1>{{ repo.full_name }}</h1>
+    <p class="badges">
+      {% if repo.is_official %}<span class="badge official">Officiel Anthropic</span>{% endif %}
+      {% if repo.archived %}<span class="badge muted">Archivé</span>{% endif %}
+      {% if repo.gone %}<span class="badge muted">Dépôt indisponible</span>{% endif %}
+      {% for t in repo.topics[:12] %}<span class="badge">{{ t }}</span>{% endfor %}
+    </p>
+    {% if repo.description %}<p class="lead">{{ repo.description }}</p>{% endif %}
+    <p class="links">
+      <a class="button" href="{{ repo.url }}" target="_blank" rel="noopener">Ouvrir sur GitHub ↗</a>
+    </p>
+  </header>
+
+  <dl class="facts inline">
+    <dt>Étoiles</dt><dd>★ {{ repo.stars|num }}</dd>
+    <dt>Forks</dt><dd>{{ repo.forks|num }}</dd>
+    <dt>Tickets ouverts</dt><dd>{{ repo.open_issues|num }}</dd>
+    <dt>Licence</dt><dd>{{ repo.license or "Non précisée" }}</dd>
+    <dt>Créé le</dt><dd>{{ repo.created_at|day }}</dd>
+    <dt>Dernier push</dt><dd>{{ repo.pushed_at|day }}</dd>
+    <dt>Vérifié le</dt><dd>{{ repo.last_checked_at|day }}</dd>
+  </dl>
+
+  <section>
+    <h2>{{ skills|length }} skill{{ "s" if skills|length != 1 }}</h2>
+    {% if skills %}
+    <div class="cards">
+      {% for s in skills %}{{ card(s, show_repo=false) }}{% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">Aucun SKILL.md trouvé dans ce dépôt.</p>
+    {% endif %}
+  </section>
+</article>
+{% endblock %}

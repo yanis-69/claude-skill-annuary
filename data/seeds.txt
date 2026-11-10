@@ -1,0 +1,5 @@
+# Dépôts à crawler systématiquement : un "owner/repo" par ligne.
+# Les lignes vides et celles qui commencent par # sont ignorées.
+anthropics/skills
+anthropics/claude-code
+anthropics/claude-plugins-official

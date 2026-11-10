@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% from "_macros.html" import card %}
+{% block title %}{{ skill.name }} · Skills Hub{% endblock %}
+{% block content %}
+<article class="detail">
+  <p class="crumbs"><a href="/">Recherche</a> › <a href="/repo/{{ skill.full_name }}">{{ skill.full_name }}</a></p>
+  <header class="detail-head">
+    <h1>{{ skill.name }}</h1>
+    <p class="badges">
+      {% if skill.is_official %}<span class="badge official">Officiel Anthropic</span>{% endif %}
+      {% if skill.archived %}<span class="badge muted">Dépôt archivé</span>{% endif %}
+      {% if skill.removed %}<span class="badge muted">Retiré du dépôt</span>{% endif %}
+      {% if skill.category %}<a class="badge cat" href="/?category={{ skill.category }}">{{ category_labels.get(skill.category, skill.category) }}</a>{% endif %}
+    </p>
+    <p class="links">
+      <a class="button" href="{{ folder_url }}" target="_blank" rel="noopener">Dossier du skill sur GitHub ↗</a>
+      <a class="button ghost" href="{{ skill.repo_url }}" target="_blank" rel="noopener">Dépôt {{ skill.full_name }} ↗</a>
+    </p>
+  </header>
+
+  <div class="detail-grid">
+    <div>
+      <section>
+        <h2>Résumé</h2>
+        <p class="lead">{{ skill.summary or "Aucun résumé disponible." }}</p>
+        {% if skill.frontmatter_description and skill.frontmatter_description != skill.summary %}
+        <details>
+          <summary>Description d'origine (frontmatter)</summary>
+          <p>{{ skill.frontmatter_description }}</p>
+        </details>
+        {% endif %}
+      </section>
+
+      <section>
+        <h2>Avantages clés</h2>
+        <p class="badges big">
+          {% for t in skill.tags %}<a class="badge tag" href="/?tags={{ t }}">{{ t }}</a>{% else %}<span class="muted-text">Aucun tag</span>{% endfor %}
+        </p>
+        {% if skill.advantages %}
+        <ul class="advantages">
+          {% for a in skill.advantages %}<li>{{ a }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+      </section>
+
+      <section>
+        <h2>Installation suggérée</h2>
+        {% if skill.install_type == "plugin" %}
+        <p>Ce dépôt est une marketplace de plugins Claude Code. Dans Claude Code :</p>
+        {% else %}
+        <p>Copier le dossier du skill dans <code>~/.claude/skills/</code> :</p>
+        {% endif %}
+        <pre><code>{% for line in install %}{{ line }}
+{% endfor %}</code></pre>
+      </section>
+    </div>
+
+    <aside>
+      <dl class="facts">
+        <dt>Étoiles</dt><dd>★ {{ skill.stars|num }}{% if skill.trend and skill.trend > 0 %} <span class="trend">(+{{ skill.trend|num }} sur 30 j)</span>{% endif %}</dd>
+        <dt>Forks</dt><dd>{{ skill.forks|num }}</dd>
+        <dt>Auteur</dt><dd><a href="/?author={{ skill.owner }}">{{ skill.owner }}</a> ({{ "organisation" if skill.owner_type == "org" else "utilisateur" }})</dd>
+        <dt>Compatibilité</dt><dd>{% for c in skill.compat %}<span class="badge compat">{{ compat_labels.get(c, c) }}</span>{% else %}—{% endfor %}</dd>
+        <dt>Type</dt><dd>{{ install_labels.get(skill.install_type, skill.install_type or "—") }}</dd>
+        <dt>Taille du SKILL.md</dt><dd>{{ skill.skill_md_size|num }} octets (≈ {{ skill.tokens|num }} tokens)</dd>
+        <dt>Fichiers</dt><dd>{{ skill.file_count }}{% if skill.has_scripts %} · scripts{% endif %}{% if skill.has_references %} · références{% endif %}</dd>
+        <dt>Licence</dt><dd>{{ skill.license or "Non précisée" }}</dd>
+        <dt>Langue</dt><dd>{{ lang_labels.get(skill.language, skill.language or "—") }}</dd>
+        <dt>Dépôt créé le</dt><dd>{{ skill.repo_created_at|day }}</dd>
+        <dt>Dernier push</dt><dd>{{ skill.pushed_at|day }}</dd>
+        <dt>Détecté le</dt><dd>{{ skill.first_seen_at|day }}</dd>
+        <dt>Skill modifié le</dt><dd>{{ skill.updated_at|day }}</dd>
+        <dt>Enrichi par</dt><dd>{{ skill.enriched_by or "—" }}</dd>
+      </dl>
+    </aside>
+  </div>
+
+  {% if siblings %}
+  <section>
+    <h2>Autres skills du même dépôt</h2>
+    <div class="cards">
+      {% for s in siblings %}{{ card(s, show_repo=false) }}{% endfor %}
+    </div>
+    <p><a href="/repo/{{ skill.full_name }}">Voir tous les skills de {{ skill.full_name }} →</a></p>
+  </section>
+  {% endif %}
+</article>
+{% endblock %}
