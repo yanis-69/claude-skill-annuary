@@ -9,10 +9,9 @@
 </head>
 <body>
   <header class="top">
-    <a class="brand" href="/">Skills Hub</a>
-    <span class="tagline">Annuaire des skills Claude publiés sur GitHub</span>
+    <a class="brand" href="/">Skills Hub<span>.</span></a>
     <nav>
-      <a href="/" {% if request.url.path == "/" %}aria-current="page"{% endif %}>Recherche</a>
+      <a href="/" {% if request.url.path == "/" %}aria-current="page"{% endif %}>Annuaire</a>
       <a href="/stats" {% if request.url.path == "/stats" %}aria-current="page"{% endif %}>Statistiques</a>
     </nav>
   </header>

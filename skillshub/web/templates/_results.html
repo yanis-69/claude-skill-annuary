@@ -22,11 +22,11 @@
 {% if pages > 1 %}
 <nav class="pager" aria-label="Pagination">
   {% if page > 1 %}
-  <a href="{{ page_url(page - 1) }}" hx-get="{{ page_url(page - 1) }}" hx-target="#results" hx-push-url="true" hx-swap="innerHTML show:top">← Précédent</a>
+  <a href="{{ page_url(page - 1) }}" hx-get="{{ page_url(page - 1) }}" hx-target="#results" hx-push-url="true" hx-swap="innerHTML show:#results:top">← Précédent</a>
   {% endif %}
-  <span>Page {{ page }} / {{ pages|num }}</span>
+  <span>Page {{ page }} sur {{ pages|num }}</span>
   {% if page < pages %}
-  <a href="{{ page_url(page + 1) }}" hx-get="{{ page_url(page + 1) }}" hx-target="#results" hx-push-url="true" hx-swap="innerHTML show:top">Suivant →</a>
+  <a href="{{ page_url(page + 1) }}" hx-get="{{ page_url(page + 1) }}" hx-target="#results" hx-push-url="true" hx-swap="innerHTML show:#results:top">Suivant →</a>
   {% endif %}
 </nav>
 {% endif %}

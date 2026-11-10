@@ -3,7 +3,7 @@
 {% block title %}{{ skill.name }} · Skills Hub{% endblock %}
 {% block content %}
 <article class="detail">
-  <p class="crumbs"><a href="/">Recherche</a> › <a href="/repo/{{ skill.full_name }}">{{ skill.full_name }}</a></p>
+  <p class="crumbs"><a href="/">Annuaire</a> › <a href="/repo/{{ skill.full_name }}">{{ skill.full_name }}</a></p>
   <header class="detail-head">
     <h1>{{ skill.name }}</h1>
     <p class="badges">
@@ -13,8 +13,8 @@
       {% if skill.category %}<a class="badge cat" href="/?category={{ skill.category }}">{{ category_labels.get(skill.category, skill.category) }}</a>{% endif %}
     </p>
     <p class="links">
-      <a class="button" href="{{ folder_url }}" target="_blank" rel="noopener">Dossier du skill sur GitHub ↗</a>
-      <a class="button ghost" href="{{ skill.repo_url }}" target="_blank" rel="noopener">Dépôt {{ skill.full_name }} ↗</a>
+      <a class="button" href="{{ folder_url }}" target="_blank" rel="noopener">Voir le skill sur GitHub ↗</a>
+      <a class="button ghost" href="/repo/{{ skill.full_name }}">Tous les skills de {{ skill.full_name }}</a>
     </p>
   </header>
 
@@ -24,7 +24,7 @@
         <h2>Résumé</h2>
         <p class="lead">{{ skill.summary or "Aucun résumé disponible." }}</p>
         {% if skill.frontmatter_description and skill.frontmatter_description != skill.summary %}
-        <details>
+        <details class="origin-text">
           <summary>Description d'origine (frontmatter)</summary>
           <p>{{ skill.frontmatter_description }}</p>
         </details>
