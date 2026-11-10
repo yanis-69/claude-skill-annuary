@@ -10,6 +10,7 @@ import json
 import posixpath
 import sqlite3
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
@@ -19,6 +20,11 @@ from .github import GitHubClient, GitHubError, NotFound
 from .parse import find_skills_in_tree, install_type, is_plugin_repo, parse_skill_md
 
 Log = Callable[[str], None]
+
+# Clé meta : taille (octets) où la recherche de code reprendra au prochain crawl.
+CODE_CURSOR = "code_search_lo"
+# Durée par défaut accordée à la recherche de code à chaque crawl (minutes).
+DEFAULT_DISCOVER_MINUTES = 20.0
 
 # Téléchargements simultanés de SKILL.md (raw.githubusercontent.com, hors quota API).
 DOWNLOAD_WORKERS = 8
@@ -216,6 +222,8 @@ class Crawler:
                 "name": info["name"],
                 "frontmatter_description": info["description"],
                 "summary": res["summary_fr"],
+                "usage": res.get("usage_fr"),
+                "example": res.get("example"),
                 "advantages": res["advantages"],
                 "category": res["category"],
                 "tags": res["tags"],
@@ -295,12 +303,13 @@ class Crawler:
                 self.log(f"[{i}/{len(queue)}] {full_name} : ERREUR {type(exc).__name__} : {exc}")
 
     def enrich_only(self, limit: int | None = None) -> None:
-        """Ré-enrichit avec un CLI les skills restés en `heuristic`."""
+        """Ré-enrichit les skills restés en `heuristic` ou sans mode d'emploi."""
         conn = self.conn
         sql = (
             "SELECT s.*, r.full_name, r.default_branch, r.description AS repo_description, "
             "r.topics FROM skills s JOIN repos r ON r.id = s.repo_id "
-            "WHERE s.removed = 0 AND r.gone = 0 AND s.enriched_by = 'heuristic' "
+            "WHERE s.removed = 0 AND r.gone = 0 "
+            "AND (s.enriched_by = 'heuristic' OR s.usage IS NULL) "
             "ORDER BY r.stars DESC, s.id"
         )
         rows = conn.execute(sql + (" LIMIT ?" if limit else ""), (limit,) if limit else ()).fetchall()
@@ -323,7 +332,8 @@ class Crawler:
                 continue
             parsed = parse_skill_md(text, fallback_name=row["name"] or "")
             infos.append({
-                "id": row["id"], "path": row["path"], "name": parsed["name"],
+                "id": row["id"], "was": row["enriched_by"], "path": row["path"],
+                "name": parsed["name"],
                 "description": parsed["description"], "body": parsed["body"],
                 "full_name": row["full_name"], "repo_description": row["repo_description"],
                 "topics": db.row_to_skill(row)["topics"], "has_scripts": row["has_scripts"],
@@ -333,6 +343,13 @@ class Crawler:
         now = db.now_iso()
         for info, res in zip(infos, results):
             conn.execute(
+                "UPDATE skills SET usage = ?, example = ? WHERE id = ?",
+                (res.get("usage_fr"), res.get("example"), info["id"]),
+            )
+            self.counters["enriched"] += 1
+            if res["enriched_by"] == "heuristic" and info["was"] not in (None, "heuristic"):
+                continue  # ne pas écraser un résumé de modèle par l'heuristique
+            conn.execute(
                 "UPDATE skills SET summary = ?, advantages = ?, category = ?, compat = ?, "
                 "language = ?, enriched_by = ?, enriched_at = ? WHERE id = ?",
                 (res["summary_fr"], json.dumps(res["advantages"], ensure_ascii=False),
@@ -340,7 +357,6 @@ class Crawler:
                  res["enriched_by"], now, info["id"]),
             )
             db.set_skill_tags(conn, info["id"], res["tags"])
-            self.counters["enriched"] += 1
             if res["enriched_by"] != "heuristic":
                 self.counters["skills_updated"] += 1
             if len(infos) <= 50:
@@ -351,6 +367,7 @@ class Crawler:
 def run(conn: sqlite3.Connection, gh: GitHubClient, *, full: bool = False,
         limit: int | None = None, discover_only: bool = False, enrich_only: bool = False,
         no_discover: bool = False, repos: list[str] | None = None,
+        discover_minutes: float | None = None,
         backend: str = "heuristic", log: Log = _print) -> dict[str, Any]:
     """Lance un crawl complet et journalise le résultat dans crawl_runs."""
     mode = ("enrich-only" if enrich_only else "discover-only" if discover_only
@@ -363,9 +380,22 @@ def run(conn: sqlite3.Connection, gh: GitHubClient, *, full: bool = False,
         else:
             if not no_discover and not repos:
                 log("Découverte des dépôts…")
-                found = discover_all(gh, limit=limit, log=log)
-                added = db.add_candidates(conn, found)
-                conn.commit()
+                added = 0
+
+                def save(batch: dict[str, str]) -> None:
+                    # Sauvegarde au fil de l'eau : une interruption ne perd rien.
+                    nonlocal added
+                    added += db.add_candidates(conn, batch)
+                    conn.commit()
+
+                start = db.get_meta(conn, CODE_CURSOR)
+                found = discover_all(
+                    gh, limit=limit, log=log, save=save,
+                    code_start=int(start) if start and start.isdigit() else 0,
+                    set_code_cursor=lambda lo: db.set_meta(conn, CODE_CURSOR, lo),
+                    deadline=(time.monotonic() + discover_minutes * 60
+                              if discover_minutes else None),
+                )
                 log(f"Découverte : {len(found)} dépôt(s) trouvé(s), {added} nouveau(x)")
             if not discover_only:
                 crawler.crawl(limit, only=repos)
@@ -405,6 +435,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="ré-enrichit les skills `heuristic` avec un CLI")
     p.add_argument("--no-discover", action="store_true",
                    help="saute la découverte : crawle seulement les dépôts déjà connus")
+    p.add_argument("--discover-minutes", type=float, default=DEFAULT_DISCOVER_MINUTES,
+                   metavar="MIN",
+                   help="temps accordé à la recherche de code, qui reprend au crawl suivant "
+                        f"(défaut : {DEFAULT_DISCOVER_MINUTES:g} ; 0 = sans limite)")
     p.add_argument("--repo", action="append", metavar="OWNER/NOM", default=None,
                    help="crawle uniquement ce dépôt (option répétable), sans découverte")
     p.add_argument("--backend", choices=["auto", *enrich.BACKENDS], default=None,
@@ -423,7 +457,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = run(conn, gh, full=args.full, limit=args.limit,
                      discover_only=args.discover_only, enrich_only=args.enrich_only,
-                     no_discover=args.no_discover, repos=args.repo, backend=backend)
+                     no_discover=args.no_discover, repos=args.repo,
+                     discover_minutes=args.discover_minutes, backend=backend)
     finally:
         gh.close()
         conn.close()

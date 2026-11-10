@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 from . import config
+from .usage import clip_example, extract_usage
 
 # Listes fermées : elles gardent les filtres propres.
 CATEGORIES = [
@@ -252,7 +253,10 @@ def enrich_heuristic(skill: dict[str, Any]) -> dict[str, Any]:
     if not advantages:
         advantages.append("Ajoute des instructions spécialisées réutilisables à Claude")
 
+    usage, example = extract_usage(skill)
     return {
+        "usage_fr": usage,
+        "example": example,
         "summary_fr": summary,
         "advantages": advantages[:5],
         "category": category,
@@ -283,6 +287,8 @@ Format attendu :
  "category": "une valeur parmi : {", ".join(CATEGORIES)}",
  "tags": ["1 à 5 valeurs parmi : {", ".join(TAGS)}"],
  "compat": ["valeurs parmi : {", ".join(COMPAT)}"],
+ "usage_fr": "2 à 4 phrases en français : comment déclencher et utiliser le skill (commande, prérequis, étapes)",
+ "example": "un exemple concret tiré du SKILL.md (demande type de l'utilisateur ou commande) ; chaîne vide s'il n'y en a pas",
  "language": "code ISO 639-1 de la langue du SKILL.md (en, fr, zh…)"}}
 
 Règles : n'invente rien ; utilise uniquement les valeurs autorisées pour category, tags et compat ;
@@ -341,9 +347,13 @@ def validate(obj: dict[str, Any]) -> dict[str, Any]:
     language = str(obj.get("language") or "en").strip().lower()[:2] or "en"
     if not re.fullmatch(r"[a-z]{2}", language):
         language = "en"
+    usage = re.sub(r"[ \t]+", " ", str(obj.get("usage_fr") or obj.get("usage") or "")).strip()
+    example = obj.get("example")
+    example = "\n".join(str(e) for e in example) if isinstance(example, list) else str(example or "")
     return {
         "summary_fr": summary[:1200], "advantages": advantages, "category": category,
         "tags": tags[:5], "compat": compat, "language": language,
+        "usage_fr": usage[:1200], "example": clip_example(example) or None,
     }
 
 
@@ -435,6 +445,11 @@ def enrich(skill: dict[str, Any], backend: str = "heuristic",
             try:
                 result = validate(extract_json(CALLERS[backend](prompt)))
                 result["enriched_by"] = backend
+                if not result["usage_fr"] or not result["example"]:
+                    # Le modèle n'a rien fourni : on complète depuis le SKILL.md.
+                    usage, example = extract_usage(skill)
+                    result["usage_fr"] = result["usage_fr"] or usage
+                    result["example"] = result["example"] or example
                 return result
             except InvalidEnrichment as exc:
                 if log:

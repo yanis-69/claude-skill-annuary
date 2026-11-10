@@ -220,7 +220,12 @@ a.badge:hover { border-color: var(--accent); color: var(--accent); }
 .advantages { list-style: none; padding: 0; margin: 1.2rem 0 0; }
 .advantages li { padding: 0.55rem 0 0.55rem 1.6rem; position: relative; border-top: 1px solid var(--line); }
 .advantages li::before { content: "—"; position: absolute; left: 0; color: var(--accent); }
-details.origin-text { margin-top: 1rem; color: var(--muted); font-size: 0.9rem; }
+.steps { list-style: none; counter-reset: step; padding: 0; margin: 0; }
+.steps li { counter-increment: step; position: relative; padding: 0.6rem 0 0.6rem 2.2rem; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.steps li::before { content: counter(step); position: absolute; left: 0; top: 0.6rem; color: var(--accent); font-family: var(--serif); font-size: 1.05rem; }
+.sub { font-family: var(--sans); font-size: 0.7rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; margin: 1.4rem 0 0; }
+pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
+details.origin-text {margin-top: 1rem; color: var(--muted); font-size: 0.9rem; }
 details.origin-text summary { cursor: pointer; }
 details.origin-text p { margin-top: 0.5rem; }
 

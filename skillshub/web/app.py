@@ -174,7 +174,7 @@ def stats_page(request: Request, conn: sqlite3.Connection = Depends(get_conn)):
 
 API_FIELDS = (
     "id", "name", "path", "full_name", "repo_url", "owner", "is_official", "category", "tags",
-    "summary", "advantages", "frontmatter_description", "compat", "language", "install_type",
+    "summary", "usage", "example", "advantages", "frontmatter_description", "compat", "language", "install_type",
     "has_scripts", "has_references", "file_count", "skill_md_size", "tokens", "stars", "forks",
     "trend", "license", "archived", "pushed_at", "first_seen_at", "updated_at", "enriched_by",
 )

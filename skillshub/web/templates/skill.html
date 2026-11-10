@@ -43,6 +43,21 @@
         {% endif %}
       </section>
 
+      {% if skill.usage or skill.example %}
+      <section id="utilisation">
+        <h2>Comment l'utiliser</h2>
+        {% if skill.usage %}
+        <ol class="steps">
+          {% for line in skill.usage.split("\n") if line.strip() %}<li>{{ line }}</li>{% endfor %}
+        </ol>
+        {% endif %}
+        {% if skill.example %}
+        <h3 class="sub">Exemple</h3>
+        <pre><code>{{ skill.example }}</code></pre>
+        {% endif %}
+      </section>
+      {% endif %}
+
       <section>
         <h2>Installation suggérée</h2>
         {% if skill.install_type == "plugin" %}

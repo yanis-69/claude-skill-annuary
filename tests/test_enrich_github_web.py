@@ -137,12 +137,12 @@ def test_decoupage_de_la_recherche_de_code(monkeypatch):
         q = request.url.params["q"]
         page = int(request.url.params["page"])
         queries.append((q, page))
-        if "size:0..500" in q:                       # tranche trop grosse : à redécouper
+        if "size:0..499" in q:                       # tranche trop grosse : à réduire
             return httpx.Response(200, json={"total_count": 1500, "items": []})
-        if "size:0..250" in q:
+        if "size:0..249" in q:
             items = [{"repository": {"full_name": f"o/r{page}-{i}"}} for i in range(100 if page == 1 else 20)]
             return httpx.Response(200, json={"total_count": 120, "items": items})
-        if "size:251..500" in q:
+        if "size:250..500" in q:
             return httpx.Response(200, json={"total_count": 1, "items": [
                 {"repository": {"full_name": "O/R1-0"}}, {"repository": {"full_name": "new/one"}}]})
         return httpx.Response(200, json={"total_count": 0, "items": []})
@@ -150,10 +150,43 @@ def test_decoupage_de_la_recherche_de_code(monkeypatch):
     gh, _ = _client(handler)
     monkeypatch.setattr(discover, "SIZE_MAX", 500)
     found = discover.Found()
-    discover.discover_code(gh, found, lambda _m: None)
+    cursors = []
+    assert discover.discover_code(gh, found, lambda _m: None, on_slice=cursors.append) is None
     assert len(found) == 121                         # 120 + new/one, doublon de casse ignoré
-    assert ("filename:SKILL.md size:0..250", 2) in queries
-    assert queries[-1][0] == "filename:SKILL.md size:>=501"
+    assert ("filename:SKILL.md size:0..249", 2) in queries
+    assert queries[-1][0] == "filename:SKILL.md size:>500"
+    assert cursors == [250, 501, None]               # reprise mémorisée après chaque tranche
+
+    # Reprise à partir du curseur, puis arrêt immédiat quand le temps est écoulé.
+    queries.clear()
+    discover.discover_code(gh, discover.Found(), lambda _m: None, start=250)
+    assert queries[0][0] == "filename:SKILL.md size:250..500"
+    queries.clear()
+    assert discover.discover_code(gh, discover.Found(), lambda _m: None, start=250, deadline=0) == 250
+    assert queries == []
+
+
+def test_decouverte_sauvegardee_au_fil_de_l_eau(conn, monkeypatch, tmp_path):
+    from skillshub.crawl import CODE_CURSOR, run
+    monkeypatch.setattr(config, "SEEDS_PATH", tmp_path / "absent.txt")
+    monkeypatch.setattr(discover, "SIZE_MAX", 999)
+    monkeypatch.setattr(discover, "TOPIC_QUERIES", [])
+    monkeypatch.setattr(discover, "AWESOME_LISTS", [])
+
+    def handler(request):
+        q = request.url.params.get("q", "")
+        if "size:0..499" in q:
+            return httpx.Response(200, json={"total_count": 1, "items": [
+                {"repository": {"full_name": "a/first"}}]})
+        if "size:500..999" in q:
+            return httpx.Response(500)               # panne au milieu de la découverte
+        return httpx.Response(200, json={"total_count": 0, "items": []})
+
+    gh, _ = _client(handler, max_retries=1)
+    run(conn, gh, discover_only=True, log=lambda _m: None)
+    names = {r[0] for r in conn.execute("SELECT full_name FROM candidates")}
+    assert names == {"anthropics/skills", "a/first"}   # la première tranche n'est pas perdue
+    assert db.get_meta(conn, CODE_CURSOR) == "500"     # et le prochain crawl reprend ici
 
 
 def test_seeds_et_limite(tmp_path, monkeypatch):
@@ -238,3 +271,64 @@ def test_api_json(client):
     everything = client.get("/api/skills").json()
     assert everything["total"] == 3 and everything["items"][0]["stars"] == 5000
     assert client.get("/static/htmx.min.js").status_code == 200
+
+
+# ---------------------------------------------------------------- mode d'emploi et exemple
+
+PDF = {"name": "pdf-tools", "path": "skills/pdf-tools",
+       "description": 'Fill PDF forms. Use this skill when the user mentions a .pdf file. '
+                      'Trigger with "fill this form", "merge these PDFs".',
+       "body": "# PDF\n\nIntro.\n\n## Quick start\n\n1. Install **pypdf**\n2. Run the script\n\n"
+               "```bash\n# pas un titre\npython scripts/fill.py in.pdf\n```\n\n"
+               "## Examples\n\n```\nFill form.pdf with data.json\n```\n"}
+
+
+def test_extract_usage_sections_et_exemple():
+    from skillshub.usage import extract_usage
+    usage, example = extract_usage(PDF)
+    lines = usage.split("\n")
+    assert lines[0].startswith("Dans Claude Code, tapez /pdf-tools")
+    assert lines[1] == "Quand l'utiliser : Use this skill when the user mentions a .pdf file."
+    assert lines[2:] == ["Install pypdf", "Run the script"]
+    assert example == "Fill form.pdf with data.json"          # section Examples prioritaire
+
+    no_examples = dict(PDF, body=PDF["body"].split("## Examples")[0])
+    assert extract_usage(no_examples)[1] == "# pas un titre\npython scripts/fill.py in.pdf"
+    quoted = dict(PDF, body="Texte sans code.")
+    assert extract_usage(quoted)[1] == "fill this form\nmerge these PDFs"
+
+
+def test_extract_usage_sans_matiere():
+    from skillshub.usage import clip_example, extract_usage
+    usage, example = extract_usage({"name": "My Skill", "description": "Does things."})
+    assert usage.startswith("Décrivez simplement votre besoin") and "\n" not in usage
+    assert example is None
+    long = clip_example("\n".join(f"ligne {i}" for i in range(60)))
+    assert long.endswith("…") and len(long.splitlines()) == 26
+    assert enrich.enrich_heuristic(PDF)["usage_fr"].startswith("Dans Claude Code")
+
+
+def test_validate_usage_du_modele_et_complement(monkeypatch):
+    base = ('{"summary_fr": "Un résumé suffisamment long pour être valide.", '
+            '"advantages": ["a", "b", "c"], "category": "documents", "tags": ["docs"]')
+    full = base + ', "usage_fr": "Demandez de remplir un PDF.", "example": "Remplis form.pdf"}'
+    r = enrich.validate(enrich.extract_json(full))
+    assert r["usage_fr"] == "Demandez de remplir un PDF." and r["example"] == "Remplis form.pdf"
+    # Le modèle omet les champs : complétés depuis le SKILL.md.
+    monkeypatch.setitem(enrich.CALLERS, "claude", lambda p: base + "}")
+    r = enrich.enrich(PDF, "claude")
+    assert r["enriched_by"] == "claude" and r["example"] == "Fill form.pdf with data.json"
+    assert r["usage_fr"].startswith("Dans Claude Code")
+
+
+def test_page_skill_affiche_le_mode_d_emploi(client):
+    conn = db.connect()
+    conn.execute("UPDATE skills SET usage = ?, example = ? WHERE id = 1",
+                 ("Tapez /pdf.\nQuand l'utiliser : pour un PDF.", "Remplis <form>.pdf"))
+    conn.commit()
+    conn.close()
+    page = client.get("/skill/1").text
+    assert "Comment l&#39;utiliser" in page or "Comment l'utiliser" in page
+    assert "<li>Tapez /pdf.</li>" in page and "Remplis &lt;form&gt;.pdf" in page
+    assert "Comment l" not in client.get("/skill/3").text.split("Installation")[0]
+    assert client.get("/api/skills?q=pdf").json()["items"][0]["example"] == "Remplis <form>.pdf"

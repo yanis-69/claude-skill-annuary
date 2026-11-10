@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -45,6 +46,7 @@ class Found(dict):
     def __init__(self, limit: int | None = None):
         super().__init__()
         self._keys: set[str] = set()
+        self._unsaved: dict[str, str] = {}
         self.limit = limit
 
     def add(self, full_name: str | None, source: str) -> None:
@@ -53,6 +55,12 @@ class Found(dict):
         if full_name.lower() not in self._keys:
             self._keys.add(full_name.lower())
             self[full_name] = source
+            self._unsaved[full_name] = source
+
+    def take_unsaved(self) -> dict[str, str]:
+        """Dépôts ajoutés depuis le dernier appel."""
+        batch, self._unsaved = self._unsaved, {}
+        return batch
 
     @property
     def full(self) -> bool:
@@ -71,8 +79,7 @@ def read_seeds(path: Path | None = None) -> list[str]:
 
 
 def _keep(repo: dict) -> bool:
-    """Écarte les forks : la recherche GitHub n'indexe que ceux qui ont leur propre activité,
-    et le crawl refait le contrôle « fork sans commit propre » dépôt par dépôt."""
+    """Les forks sans commit propre sont écartés plus tard, dépôt par dépôt, par le crawl."""
     return bool(repo) and not repo.get("private")
 
 
@@ -149,67 +156,113 @@ def discover_awesome(gh: GitHubClient, found: Found, log: Log) -> None:
     log(f"  listes awesome : +{len(found) - before}")
 
 
-def _code_search_slice(gh: GitHubClient, found: Found, log: Log, lo: int, hi: int | None) -> None:
-    """Recherche `filename:SKILL.md` sur une tranche de taille ; redécoupe si elle dépasse le plafond."""
-    if found.full:
-        return
-    size = f"size:>={lo}" if hi is None else f"size:{lo}..{hi}"
-    query = f"filename:SKILL.md {size}"
-    data = gh.search("code", query, page=1)
-    total = data.get("total_count") or 0
-    if total > SEARCH_CAP and hi is not None and hi > lo:
-        mid = (lo + hi) // 2
-        _code_search_slice(gh, found, log, lo, mid)
-        _code_search_slice(gh, found, log, mid + 1, hi)
-        return
-    before = len(found)
+def _collect_code_results(gh: GitHubClient, found: Found, query: str, data: dict) -> None:
+    """Parcourt les pages d'une recherche de code (au plus 1000 résultats)."""
+    total = min(data.get("total_count") or 0, SEARCH_CAP)
     page = 1
     while True:
         for item in data.get("items") or []:
             repo = item.get("repository") or {}
             if _keep(repo):
                 found.add(repo.get("full_name"), "code-search")
-        if found.full or page * 100 >= min(total, SEARCH_CAP) or not data.get("items"):
-            break
+        if found.full or page * 100 >= total or not data.get("items"):
+            return
         page += 1
         data = gh.search("code", query, page=page)
-    capped = " (plafonné à 1000)" if total > SEARCH_CAP else ""
-    log(f"  recherche de code {size} : {total} fichier(s){capped}, +{len(found) - before} dépôt(s)")
 
 
-def discover_code(gh: GitHubClient, found: Found, log: Log) -> None:
-    lo = 0
-    while lo <= SIZE_MAX and not found.full:
-        hi = lo + SIZE_STEP if lo == 0 else lo + SIZE_STEP - 1
-        _code_search_slice(gh, found, log, lo, hi)
+def discover_code(gh: GitHubClient, found: Found, log: Log, start: int = 0,
+                  deadline: float | None = None,
+                  on_slice: Callable[[int | None], None] | None = None) -> int | None:
+    """Recherche `filename:SKILL.md` par tranches de taille de fichier.
+
+    Une tranche qui dépasse le plafond de 1000 résultats est réduite de moitié ; la largeur
+    remonte quand les tranches se vident. `on_slice(prochaine_taille)` est appelé après chaque
+    tranche pour mémoriser la reprise. Retourne la taille où reprendre si `deadline`
+    (time.monotonic) est dépassé, ou None quand tout l'intervalle a été parcouru.
+    """
+    lo, step = start, SIZE_STEP
+    while lo <= SIZE_MAX:
+        if found.full:
+            return lo
+        if deadline is not None and time.monotonic() >= deadline:
+            log(f"  recherche de code : temps écoulé, reprise à size:{lo} au prochain crawl")
+            return lo
+        hi = min(lo + step - 1, SIZE_MAX)
+        query = f"filename:SKILL.md size:{lo}..{hi}"
+        data = gh.search("code", query, page=1)
+        total = data.get("total_count") or 0
+        if total > SEARCH_CAP and hi > lo:
+            step = max(1, (hi - lo + 1) // 2)
+            continue
+        before = len(found)
+        _collect_code_results(gh, found, query, data)
+        capped = " (plafonné à 1000)" if total > SEARCH_CAP else ""
+        log(f"  recherche de code size:{lo}..{hi} : {total} fichier(s){capped}, "
+            f"+{len(found) - before} dépôt(s)")
         lo = hi + 1
-    _code_search_slice(gh, found, log, lo, None)
+        if on_slice:
+            on_slice(lo)
+        if total < SEARCH_CAP // 3:
+            step = min(SIZE_STEP, step * 2)
+    if not found.full:
+        query = f"filename:SKILL.md size:>{SIZE_MAX}"
+        data = gh.search("code", query, page=1)
+        before = len(found)
+        _collect_code_results(gh, found, query, data)
+        log(f"  recherche de code size:>{SIZE_MAX} : {data.get('total_count') or 0} fichier(s), "
+            f"+{len(found) - before} dépôt(s)")
+        if on_slice:
+            on_slice(None)  # parcours terminé : le prochain crawl repart de zéro
+    return None
 
 
-def discover_all(gh: GitHubClient, limit: int | None = None, log: Log = print) -> Found:
+def discover_all(gh: GitHubClient, limit: int | None = None, log: Log = print, *,
+                 save: Callable[[dict[str, str]], None] | None = None,
+                 code_start: int = 0,
+                 set_code_cursor: Callable[[int | None], None] | None = None,
+                 deadline: float | None = None) -> Found:
     """Lance toutes les sources. Avec `limit`, s'arrête dès que assez de dépôts sont trouvés.
+
+    `save(lot)` reçoit les nouveaux dépôts après chaque source et chaque tranche de la
+    recherche de code : une interruption ne perd donc rien. La recherche de code, très
+    lente (10 requêtes par minute), reprend à `code_start` et s'arrête à `deadline`.
 
     Sans jeton GitHub, la recherche de code est indisponible : seules les sources
     seeds, topics et listes awesome sont utilisées.
     """
     found = Found(limit)
+
+    def flush() -> None:
+        batch = found.take_unsaved()
+        if save and batch:
+            save(batch)
+
+    def code_slice_done(next_lo: int | None) -> None:
+        flush()
+        if set_code_cursor:
+            set_code_cursor(next_lo)
+
     discover_seeds(found, log)
-    steps: list[tuple[str, Callable[[], None]]] = [
+    steps: list[tuple[str, Callable[[], object]]] = [
         ("topics", lambda: discover_topics(gh, found, log)),
         ("awesome", lambda: discover_awesome(gh, found, log)),
     ]
     if gh.token:
         steps += [
             ("marketplaces", lambda: discover_marketplaces(gh, found, log)),
-            ("code", lambda: discover_code(gh, found, log)),
+            ("code", lambda: discover_code(gh, found, log, start=code_start,
+                                           deadline=deadline, on_slice=code_slice_done)),
         ]
     else:
         log("  GITHUB_TOKEN absent : recherche de code et marketplaces ignorées")
     for name, step in steps:
+        flush()
         if found.full:
             break
         try:
             step()
         except GitHubError as exc:
             log(f"  source « {name} » interrompue : {exc}")
+    flush()
     return found

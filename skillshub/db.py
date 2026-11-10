@@ -152,8 +152,18 @@ CREATE TRIGGER skill_tags_ad AFTER DELETE ON skill_tags BEGIN
 END;
 """
 
+# v2 : mode d'emploi et exemple par skill ; table meta (curseurs de reprise).
+_V2 = """
+ALTER TABLE skills ADD COLUMN usage TEXT;      -- comment utiliser le skill (une ligne par étape)
+ALTER TABLE skills ADD COLUMN example TEXT;    -- exemple d'utilisation, si disponible
+CREATE TABLE meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+"""
+
 # Une entrée par version de schéma ; PRAGMA user_version mémorise la dernière appliquée.
-MIGRATIONS: list[str] = [_V1]
+MIGRATIONS: list[str] = [_V1, _V2]
 
 
 def now_iso() -> str:
@@ -249,7 +259,7 @@ def add_candidates(conn: sqlite3.Connection, found: dict[str, str]) -> int:
 SKILL_FIELDS = (
     "name", "frontmatter_description", "summary", "advantages", "category", "skill_md_sha",
     "skill_md_size", "has_scripts", "has_references", "file_count", "install_type", "compat",
-    "language", "enriched_by", "enriched_at",
+    "language", "enriched_by", "enriched_at", "usage", "example",
 )
 
 
@@ -296,6 +306,22 @@ def set_skill_tags(conn: sqlite3.Connection, skill_id: int, tags: Iterable[str])
         conn.execute(
             "INSERT OR IGNORE INTO skill_tags (skill_id, tag_id) VALUES (?, ?)", (skill_id, tag_id)
         )
+
+
+def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def set_meta(conn: sqlite3.Connection, key: str, value: str | None) -> None:
+    if value is None:
+        conn.execute("DELETE FROM meta WHERE key = ?", (key,))
+    else:
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, str(value)),
+        )
+    conn.commit()
 
 
 def start_run(conn: sqlite3.Connection, mode: str, backend: str) -> int:

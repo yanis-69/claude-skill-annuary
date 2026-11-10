@@ -80,8 +80,9 @@ Options de `scripts/crawl.py` :
 | `--full` | Ignore les ETag et les SHA : tout est retéléchargé et ré-enrichi. |
 | `--discover-only` | Remplit la file des dépôts à crawler, sans les traiter. |
 | `--no-discover` | Saute la découverte. |
+| `--discover-minutes MIN` | Temps accordé à la recherche de code (défaut 20, `0` = sans limite). Elle reprend au crawl suivant là où elle s'est arrêtée. |
 | `--repo OWNER/NOM` | Crawle uniquement ce dépôt (répétable). |
-| `--enrich-only` | Ré-enrichit les skills restés en `heuristic`. |
+| `--enrich-only` | Ré-enrichit les skills restés en `heuristic` ou sans mode d'emploi. |
 | `--backend` | `auto`, `claude`, `codex`, `heuristic`. |
 
 Dépôts à inclure d'office : un `owner/repo` par ligne dans `data/seeds.txt`.
@@ -101,13 +102,17 @@ Le contenu des `SKILL.md` est téléchargé depuis `raw.githubusercontent.com`, 
 
 Sources de découverte (`skillshub/discover.py`) : seeds, recherche de dépôts par topics, listes « awesome », marketplaces de plugins (`.claude-plugin/marketplace.json`), et recherche de code `filename:SKILL.md` découpée par tranches de taille pour contourner le plafond de 1000 résultats. Les deux dernières exigent un jeton.
 
+La recherche de code est limitée par GitHub à 10 requêtes par minute : couvrir toutes les tailles de fichier prend plusieurs heures. Chaque crawl y consacre donc `--discover-minutes`, enregistre les dépôts trouvés au fur et à mesure, mémorise où il s'est arrêté, puis passe au crawl. Les crawls suivants continuent la découverte.
+
 ## Enrichissement
 
-Le modèle reçoit le frontmatter, les 4000 premiers caractères du `SKILL.md` et la description du dépôt. Il doit répondre par un JSON strict `{summary_fr, advantages, category, tags, compat, language}`, avec des listes fermées de catégories et de tags (voir `skillshub/enrich.py`). JSON invalide : un nouvel essai, puis repli heuristique.
+Le modèle reçoit le frontmatter, les 4000 premiers caractères du `SKILL.md` et la description du dépôt. Il doit répondre par un JSON strict `{summary_fr, advantages, category, tags, compat, language, usage_fr, example}`, avec des listes fermées de catégories et de tags (voir `skillshub/enrich.py`). JSON invalide : un nouvel essai, puis repli heuristique.
 
 - `claude` : `claude -p --output-format json --model haiku --max-turns 1`, prompt sur stdin.
 - `codex` : `codex exec --sandbox read-only -o <fichier> -`, prompt sur stdin.
 - `heuristic` : description du frontmatter comme résumé, tags par mots-clés.
+
+Chaque skill reçoit aussi un mode d'emploi (`usage`) et, si possible, un exemple (`example`), stockés en base et affichés sur sa page. Sans modèle, ils sont extraits du `SKILL.md` (`skillshub/usage.py`) : commande `/nom`, phrase « Use when… » de la description, section Usage ou Quick start, puis bloc de code d'une section Examples ou phrases de déclenchement citées. Un modèle qui omet ces champs est complété de la même façon.
 
 Un `SKILL.md` est un contenu non fiable. Les CLI sont donc lancés dans un dossier temporaire vide, sans outils (Claude) ou en lecture seule (Codex), et le prompt demande d'ignorer toute instruction présente dans le fichier.
 
@@ -116,7 +121,7 @@ Un `SKILL.md` est un contenu non fiable. Les CLI sont donc lancés dans un dossi
 | Route | Contenu |
 |---|---|
 | `/` | Recherche, filtres, tris, pagination. HTMX met à jour les résultats et l'URL reste partageable. |
-| `/skill/{id}` | Résumé, avantages, tags, compatibilité, étoiles, dates, taille en tokens, installation suggérée, autres skills du dépôt. |
+| `/skill/{id}` | Résumé, avantages, mode d'emploi et exemple, tags, compatibilité, étoiles, dates, taille en tokens, installation suggérée, autres skills du dépôt. |
 | `/repo/{owner}/{nom}` | Tous les skills d'un dépôt. |
 | `/stats` | Skills par catégorie et par tag, top auteurs, dernier crawl. |
 | `/api/skills` | La même recherche en JSON (mêmes paramètres, plus `per_page`). |
@@ -143,6 +148,7 @@ skillshub/
   discover.py   sources de découverte
   parse.py      SKILL.md, marketplace.json, arbre Git
   enrich.py     backends claude / codex / heuristic
+  usage.py      mode d'emploi et exemple extraits du SKILL.md
   crawl.py      orchestration incrémentale
   web/          app FastAPI, templates Jinja2, CSS, htmx
 scripts/        crawl.py, serve.py
